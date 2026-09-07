@@ -1,0 +1,6 @@
+streamlit==1.54.0
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+python-multipart==0.0.20
+cryptography==44.0.3
+scikit-learn==1.6.0

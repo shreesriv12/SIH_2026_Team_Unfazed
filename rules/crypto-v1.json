@@ -1,0 +1,7 @@
+{
+  "version": "2026.1",
+  "rules": [
+    {"id":"TLS-DEPRECATED-001","when":"deprecated_tls","values":["TLS 1.0","TLS 1.1"],"severity":"CRITICAL","title":"Deprecated TLS version observed","remediation":"Disable TLS 1.0/1.1 and require TLS 1.2 or preferably TLS 1.3."},
+    {"id":"X509-EXPIRED-001","when":"expired_certificate","severity":"HIGH","title":"Expired X.509 certificate observed","remediation":"Replace the certificate and verify the full certificate chain."}
+  ]
+}
