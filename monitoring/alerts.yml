@@ -1,0 +1,22 @@
+groups:
+  - name: securemailscope
+    rules:
+      - alert: SecureMailScopeServiceDown
+        expr: up == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "SecureMailScope service is unreachable"}
+      - alert: AnalysisQueueBacklog
+        expr: securemailscope_queue_depth > 10
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Analysis queue has more than 10 pending jobs"}
+      - alert: AnalysisFailures
+        expr: increase(securemailscope_analysis_jobs_total{status="failed"}[10m]) > 0
+        labels: {severity: warning}
+        annotations: {summary: "One or more analysis jobs failed"}
+      - alert: CaptureDiskSpaceLow
+        expr: securemailscope_disk_free_bytes < 1073741824
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: "Less than 1 GiB remains for capture storage"}

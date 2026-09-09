@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: SecureMailScope
+    folder: SecureMailScope
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

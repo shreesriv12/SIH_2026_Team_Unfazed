@@ -18,6 +18,7 @@ HOST, PORT = "127.0.0.1", 2525
 PLAIN_PORT = 2526
 REJECT_PORT = 2527
 BROKEN_PORT = 2528
+IGNORED_PORT = 2529
 
 def make_certificate() -> None:
     CERT.parent.mkdir(exist_ok=True)
@@ -106,6 +107,18 @@ def reject_server() -> None:
 def broken_server() -> None:
     starttls_response_server(BROKEN_PORT, b"220 Ready to start TLS\r\n", "STARTTLS-broken")
 
+def ignored_server() -> None:
+    """Advertises STARTTLS; the paired client deliberately continues in plaintext."""
+    with socket.create_server((HOST, IGNORED_PORT), reuse_port=False) as listener:
+        print(f"STARTTLS-advertised/ignored SMTP lab on {HOST}:{IGNORED_PORT}; waiting for one client...")
+        connection, _ = listener.accept()
+        with connection:
+            connection.sendall(b"220 securemailscope-lab.local ESMTP lab\r\n")
+            assert line(connection).upper().startswith(b"EHLO")
+            connection.sendall(b"250-securemailscope-lab.local\r\n250 STARTTLS\r\n")
+            assert line(connection).upper().startswith(b"MAIL FROM")
+            connection.sendall(b"250 plaintext accepted for controlled fixture\r\n")
+
 def starttls_client(port: int) -> None:
     with socket.create_connection((HOST, port), timeout=10) as connection:
         print(line(connection).decode().strip())
@@ -118,8 +131,16 @@ def starttls_client(port: int) -> None:
 def reject_client() -> None: starttls_client(REJECT_PORT)
 def broken_client() -> None: starttls_client(BROKEN_PORT)
 
+def ignored_client() -> None:
+    with socket.create_connection((HOST, IGNORED_PORT), timeout=10) as connection:
+        print(line(connection).decode().strip()); connection.sendall(b"EHLO transition-test.local\r\n")
+        while True:
+            response = line(connection); print(response.decode().strip())
+            if response.startswith(b"250 "): break
+        connection.sendall(b"MAIL FROM:<fixture@securemailscope.local>\r\n"); print(line(connection).decode().strip())
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(); parser.add_argument("mode", choices=["server", "client", "server-plain", "client-plain", "server-reject", "client-reject", "server-broken", "client-broken"])
+    parser = argparse.ArgumentParser(); parser.add_argument("mode", choices=["server", "client", "server-plain", "client-plain", "server-reject", "client-reject", "server-broken", "client-broken", "server-ignored", "client-ignored"])
     args = parser.parse_args()
     {"server": server, "client": client, "server-plain": plain_server, "client-plain": plain_client,
-     "server-reject": reject_server, "client-reject": reject_client, "server-broken": broken_server, "client-broken": broken_client}[args.mode]()
+     "server-reject": reject_server, "client-reject": reject_client, "server-broken": broken_server, "client-broken": broken_client, "server-ignored": ignored_server, "client-ignored": ignored_client}[args.mode]()

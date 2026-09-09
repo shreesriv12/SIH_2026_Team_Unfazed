@@ -1,0 +1,27 @@
+http://localhost {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+        -Server
+    }
+    @backend path /api/* /docs* /redoc* /openapi.json /metrics
+    reverse_proxy @backend api:8000
+    reverse_proxy frontend:3000
+}
+
+{$SECUREMAILSCOPE_DOMAIN:localhost} {
+    encode zstd gzip
+    tls internal
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+        -Server
+    }
+    @backend path /api/* /docs* /redoc* /openapi.json /metrics
+    reverse_proxy @backend api:8000
+    reverse_proxy frontend:3000
+}

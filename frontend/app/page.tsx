@@ -1,52 +1,126 @@
 "use client";
 
-import { useState } from "react";
-
-type Session = { session_id: string; protocol: string; transition: string; tls_version: string; risk_score: number; confidence: string; anomaly_score: number | null; anomaly_status: string };
+import { useEffect, useState } from "react";
+import BorderGlow from "../components/BorderGlow";
+import "./zeek.css";
+type Evidence = { source: string; field: string; value: string; frame: string | null; timestamp: string | null; raw_value: string | null; derived_value: string | null; confidence: string };
+type Session = { session_id: string; protocol: string; transition: string; tls_version: string; risk_score: number; confidence: string; anomaly_score: number | null; anomaly_status: string; anomaly_explanation: string[]; certificate_status: string; certificate: { trust_status?: string }; evidence: Evidence[] };
 type Finding = { session: string; severity: string; rule: string; title: string; evidence: string };
-type Report = { sha256: string; packet_count: number; sessions: Session[]; findings: Finding[] };
-const API = "http://127.0.0.1:8000";
+type Report = { analysis_id?: string; sha256: string; packet_count: number; sessions: Session[]; findings: Finding[]; zeek_logs: Record<string, Record<string, unknown>[]>; performance?: { analysis_time_ms: number; peak_python_memory_mb: number; events_per_second: number } };
+type HistoryItem = { id: string; filename: string; sha256: string; status: string; created_at: string };
+type Member = { id: string; email: string; role: "ADMIN" | "ANALYST" | "VIEWER"; created_at: string };
+type AuditEvent = { id: string; action: string; target: string; created_at: string; detail: string; actor_id: string | null; ip_address: string | null };
+const API = typeof window !== "undefined" && window.location.protocol === "https:" ? "" : "http://127.0.0.1:8000";
 
 export default function Home() {
-  const [file, setFile] = useState<File | null>(null);
-  const [report, setReport] = useState<Report | null>(null);
-  const [message, setMessage] = useState("Ready for a real PCAP.");
-  const [busy, setBusy] = useState(false);
-
-  async function send(endpoint: string, json = false) {
-    if (!file) { setMessage("Choose a PCAP file first."); return; }
-    setBusy(true); setMessage(json ? "Creating JSON report…" : "Analysing capture…");
-    const form = new FormData(); form.append("file", file);
+  const [file, setFile] = useState<File | null>(null); const [report, setReport] = useState<Report | null>(null);
+  const [message, setMessage] = useState("Ready for a real PCAP."); const [busy, setBusy] = useState(false); const [selected, setSelected] = useState<string | null>(null); const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [token, setToken] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [workspace, setWorkspace] = useState("Default workspace"); const [authMessage, setAuthMessage] = useState("");
+  const [role, setRole] = useState(""); const [members, setMembers] = useState<Member[]>([]); const [memberEmail, setMemberEmail] = useState(""); const [memberPassword, setMemberPassword] = useState(""); const [memberRole, setMemberRole] = useState<Member["role"]>("ANALYST"); const [memberMessage, setMemberMessage] = useState("");
+  const [issuedResetToken, setIssuedResetToken] = useState(""); const [resetToken, setResetToken] = useState(""); const [resetPasswordValue, setResetPasswordValue] = useState(""); const [resetMessage, setResetMessage] = useState("");
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]); const [auditTotal, setAuditTotal] = useState(0); const [auditPage, setAuditPage] = useState(1); const [auditAction, setAuditAction] = useState(""); const [auditActor, setAuditActor] = useState("");
+  const authHeaders = (): HeadersInit => ({ Authorization: `Bearer ${token}` });
+  function clearSession(reason = "") { localStorage.removeItem("securemailscope_token"); localStorage.removeItem("securemailscope_refresh_token"); localStorage.removeItem("securemailscope_role"); localStorage.removeItem("securemailscope_workspace"); setToken(""); setRole(""); setReport(null); setHistory([]); setMembers([]); setAuditEvents([]); if (reason) setAuthMessage(reason); }
+  async function rotateSession() { const refreshToken = localStorage.getItem("securemailscope_refresh_token"); if (!refreshToken) { clearSession("Your session expired. Please sign in again."); return null; } try { const response = await fetch(`${API}/api/auth/refresh`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: refreshToken }) }); if (!response.ok) throw new Error(); const result = await response.json(); localStorage.setItem("securemailscope_token", result.access_token); localStorage.setItem("securemailscope_refresh_token", result.refresh_token); localStorage.setItem("securemailscope_role", result.role); setToken(result.access_token); setRole(result.role); return result.access_token as string; } catch { clearSession("Your session expired. Please sign in again."); return null; } }
+  async function authorizedFetch(url: string, init: RequestInit = {}) { const accessToken = localStorage.getItem("securemailscope_token") || token; const headers = new Headers(init.headers); headers.set("Authorization", `Bearer ${accessToken}`); let response = await fetch(url, { ...init, headers }); if (response.status !== 401) return response; const replacement = await rotateSession(); if (!replacement) return response; headers.set("Authorization", `Bearer ${replacement}`); return fetch(url, { ...init, headers }); }
+  async function loadHistory() { if (!token) return; try { const response = await authorizedFetch(`${API}/api/analyses`); if (response.ok) setHistory(await response.json()); } catch { /* API may not be running yet. */ } }
+  useEffect(() => { if (token) { loadHistory(); if (role === "ADMIN") { loadMembers(); loadAudit(1); } } }, [token, role]);
+  useEffect(() => { setToken(localStorage.getItem("securemailscope_token") ?? ""); setRole(localStorage.getItem("securemailscope_role") ?? ""); }, []);
+  useEffect(() => { if (!token) return; const timer = setInterval(() => { void rotateSession(); }, 12 * 60 * 1000); return () => clearInterval(timer); }, [token]);
+  async function send(endpoint: string, download = false, format = "json") {
+    if (!file) return setMessage("Choose a PCAP file first.");
+    setBusy(true); setMessage(download ? `Creating ${format.toUpperCase()} report...` : "Analysing capture..."); const form = new FormData(); form.append("file", file);
+    try { const response = await authorizedFetch(`${API}${endpoint}`, { method: "POST", body: form }); if (!response.ok) { const data = await response.json().catch(() => null); throw new Error(data?.detail || "Request failed."); }
+      if (download) { const blob = await response.blob(), url = URL.createObjectURL(blob), link = document.createElement("a"); link.href = url; link.download = `${file.name.replace(/\.[^.]+$/, "")}-securemailscope-report.${format}`; link.click(); URL.revokeObjectURL(url); setMessage(`${format.toUpperCase()} report downloaded.`); }
+      else { const result = await response.json() as Report; setReport(result); setSelected(result.sessions[0]?.session_id ?? null); setMessage("Analysis complete."); loadHistory(); }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Request failed."); } finally { setBusy(false); }
+  }
+  async function analyseQueued() {
+    if (!file) return setMessage("Choose a PCAP file first.");
+    setBusy(true); setMessage("QUEUED - waiting for analysis worker..."); const form = new FormData(); form.append("file", file);
     try {
-      const response = await fetch(`${API}${endpoint}`, { method: "POST", body: form });
-      if (!response.ok) { const data = await response.json().catch(() => null); throw new Error(data?.detail || "Request failed."); }
-      if (json) {
-        const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement("a");
-        link.href = url; link.download = `${file.name.replace(/\.[^.]+$/, "")}-securemailscope-report.json`; link.click(); URL.revokeObjectURL(url);
-        setMessage("JSON report downloaded.");
-      } else { setReport(await response.json()); setMessage("Analysis complete."); }
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Request failed."); }
+      const queued = await authorizedFetch(`${API}/api/jobs`, { method: "POST", body: form }); const job = await queued.json();
+      if (!queued.ok) throw new Error(job.detail || "Could not queue analysis.");
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const response = await authorizedFetch(`${API}/api/jobs/${job.job_id}`); const update = await response.json();
+        if (!response.ok) throw new Error(update.detail || "Job status could not be loaded.");
+        setMessage(`${update.status} - ${update.status === "RUNNING" ? "TShark and Zeek are analysing the capture..." : "checking worker status..."}`);
+        if (update.status === "COMPLETED") { const result = update.result as Report; setReport(result); setSelected(result.sessions[0]?.session_id ?? null); setMessage("COMPLETED - analysis ready."); loadHistory(); break; }
+        if (update.status === "RETRYING") setMessage(`Attempt ${update.attempt}/${update.max_attempts} failed; retrying automatically...`);
+        if (update.status === "FAILED") throw new Error(`${update.error || "Analysis worker failed."} (${update.attempt}/${update.max_attempts} attempts)`);
+      }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Analysis failed."); } finally { setBusy(false); }
+  }
+  async function rerunAnalysis(item: HistoryItem) {
+    setBusy(true); setMessage(`Queueing rerun for ${item.filename}...`);
+    try {
+      const queued = await authorizedFetch(`${API}/api/analyses/${item.id}/rerun`, { method: "POST" });
+      const job = await queued.json();
+      if (!queued.ok) throw new Error(job.detail || "Could not queue rerun.");
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const response = await authorizedFetch(`${API}/api/jobs/${job.job_id}`);
+        const update = await response.json();
+        if (!response.ok) throw new Error(update.detail || "Rerun status could not be loaded.");
+        setMessage(`${update.status} - rerunning ${item.filename}...`);
+        if (update.status === "COMPLETED") { const result = update.result as Report; setReport(result); setSelected(result.sessions[0]?.session_id ?? null); setMessage("Rerun completed."); loadHistory(); break; }
+        if (update.status === "RETRYING") setMessage(`Attempt ${update.attempt}/${update.max_attempts} failed; retrying automatically...`);
+        if (update.status === "FAILED") throw new Error(`${update.error || "Rerun failed."} (${update.attempt}/${update.max_attempts} attempts)`);
+      }
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Rerun failed."); }
     finally { setBusy(false); }
   }
-
   const sessions = report ? [...report.sessions].sort((a, b) => b.risk_score - a.risk_score) : [];
-  return <main>
-    <header><p>SECUREMAILSCOPE / V0.5</p><h1>Evidence, not<br /><i>assumptions.</i></h1><span>Dual-engine PCAP analysis + bounded ML</span></header>
-    <section className="upload">
-      <div><b>Upload network capture</b><small>PCAP, PCAPNG, CAP · max 50 MB</small></div>
-      <input id="capture" type="file" accept=".pcap,.pcapng,.cap" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setReport(null); }} />
-      <label htmlFor="capture">{file?.name ?? "Choose capture"}</label>
-      <div className="actions"><button disabled={busy} onClick={() => send("/api/analyse")}>{busy ? "Working…" : "Analyse →"}</button><button className="secondary" disabled={busy} onClick={() => send("/api/report/json", true)}>Download JSON report</button></div>
-      <small>{message}</small>
+  const timeline = sessions.find((session) => session.session_id === selected)?.evidence ?? [];
+  async function openHistory(item: HistoryItem) { setBusy(true); setMessage("Loading saved analysis..."); try { const response = await authorizedFetch(`${API}/api/analyses/${item.id}`); if (!response.ok) throw new Error("Saved analysis could not be loaded."); const result = await response.json() as Report; setReport(result); setSelected(result.sessions[0]?.session_id ?? null); setMessage(`Opened ${item.filename}.`); } catch (error) { setMessage(error instanceof Error ? error.message : "History load failed."); } finally { setBusy(false); } }
+  async function authenticate(register = false) { try { const response = await fetch(`${API}/api/auth/${register ? "register" : "login"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password, workspace }) }); const result = await response.json(); if (!response.ok) throw new Error(result.detail || "Authentication failed."); localStorage.setItem("securemailscope_token", result.access_token); localStorage.setItem("securemailscope_refresh_token", result.refresh_token); localStorage.setItem("securemailscope_role", result.role); localStorage.setItem("securemailscope_workspace", result.workspace_id); setRole(result.role); setToken(result.access_token); setAuthMessage(""); } catch (error) { setAuthMessage(error instanceof Error ? error.message : "Authentication failed."); } }
+  async function confirmPasswordReset() { setResetMessage(""); try { const response = await fetch(`${API}/api/auth/password-reset/confirm`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: resetToken.trim(), password: resetPasswordValue }) }); const result = await response.json(); if (!response.ok) throw new Error(result.detail || "Password reset failed."); setResetToken(""); setResetPasswordValue(""); setResetMessage("Password changed. You can now sign in."); } catch (error) { setResetMessage(error instanceof Error ? error.message : "Password reset failed."); } }
+  async function loadMembers() { if (!token) return; const response = await authorizedFetch(`${API}/api/members`); if (response.ok) setMembers(await response.json()); }
+  async function createMember() { setMemberMessage(""); try { const response = await authorizedFetch(`${API}/api/members`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: memberEmail, password: memberPassword, role: memberRole }) }); const result = await response.json(); if (!response.ok) throw new Error(result.detail); setMemberEmail(""); setMemberPassword(""); setMemberMessage("Member created."); loadMembers(); } catch (error) { setMemberMessage(error instanceof Error ? error.message : "Could not create member."); } }
+  async function changeRole(userId: string, nextRole: Member["role"]) { const response = await authorizedFetch(`${API}/api/members/${userId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: nextRole }) }); if (response.ok) loadMembers(); else { const result = await response.json(); setMemberMessage(result.detail || "Role update failed."); } }
+  async function issuePasswordReset(userId: string, memberEmailAddress: string) { setMemberMessage(""); setIssuedResetToken(""); try { const response = await authorizedFetch(`${API}/api/members/${userId}/password-reset-token`, { method: "POST" }); const result = await response.json(); if (!response.ok) throw new Error(result.detail || "Could not issue reset token."); setIssuedResetToken(result.reset_token); setMemberMessage(`One-time reset token issued for ${memberEmailAddress}. It expires in 30 minutes.`); } catch (error) { setMemberMessage(error instanceof Error ? error.message : "Could not issue reset token."); } }
+  async function loadAudit(page = auditPage) { if (!token || role !== "ADMIN") return; const params = new URLSearchParams({ page: String(page), page_size: "10" }); if (auditAction.trim()) params.set("action", auditAction.trim()); if (auditActor.trim()) params.set("actor_id", auditActor.trim()); const response = await authorizedFetch(`${API}/api/audit-events?${params}`); if (response.ok) { const result = await response.json(); setAuditEvents(result.items); setAuditTotal(result.total); setAuditPage(result.page); } }
+  function logout() {
+    const refreshToken = localStorage.getItem("securemailscope_refresh_token");
+    fetch(`${API}/api/auth/logout`, { method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : undefined }).catch(() => undefined);
+    clearSession();
+    setFile(null);
+    setSelected(null);
+    setPassword("");
+    setMessage("Ready for a real PCAP.");
+  }
+  if (!token) return <main className="auth-page">
+    <section className="auth-brand">
+      <div className="brand-mark"><span>SM</span> SECUREMAILSCOPE</div>
+      <div className="brand-copy"><p>NETWORK SECURITY INTELLIGENCE</p><h1>Evidence over<br/><i>assumptions.</i></h1><span>Inspect mail encryption with packet-level evidence, deterministic rules, and dual-engine corroboration.</span></div>
+      <div className="trust-strip"><div><b>TShark</b><small>Deep packet inspection</small></div><div><b>Zeek</b><small>Independent validation</small></div><div><b>SHA-256</b><small>Chain of custody</small></div></div>
     </section>
-    {report && <>
-      <section className="metrics"><Card name="Packets" value={report.packet_count} /><Card name="Sessions" value={sessions.length} /><Card name="Top risk" value={`${sessions[0]?.risk_score ?? 0}/100`} /><Card name="Anomalies" value={sessions.filter((session) => session.anomaly_status === "ANOMALOUS").length} /></section>
-      <section><p>HIGHEST-RISK SESSIONS</p><h2>Analyst priority</h2>{sessions.map((session) => <article key={session.session_id}><b className={session.risk_score >= 80 ? "CRITICAL" : session.risk_score >= 50 ? "HIGH" : ""}>{session.risk_score}/100</b><div><code>{session.confidence} confidence · {session.anomaly_status}{session.anomaly_score !== null ? ` · ML ${session.anomaly_score}` : ""}</code><h3>{session.protocol} / {session.transition}</h3><small>{session.session_id}</small></div></article>)}</section>
+    <div className="auth-panel">
+      <BorderGlow className="auth-glow" edgeSensitivity={30} glowColor="40 80 80" backgroundColor="#120F17" borderRadius={28} glowRadius={40} glowIntensity={1.0} coneSpread={25} animated={false} colors={['#c084fc', '#f472b6', '#38bdf8']}><section className="auth-card">
+        <div className="auth-heading"><span className="status-dot"/><p>SECURE WORKSPACE</p></div><h2>Welcome back</h2><span className="auth-subtitle">Sign in to continue to your investigations.</span>
+        <div className="field"><label htmlFor="email">Email address</label><input id="email" type="email" autoComplete="email" placeholder="analyst@team.com" value={email} onChange={(event) => setEmail(event.target.value)} /></div>
+        <div className="field"><label htmlFor="password">Password</label><input id="password" type="password" autoComplete="current-password" placeholder="Enter your password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void authenticate(false); }} /></div>
+        <div className="field"><label htmlFor="workspace">Workspace <span>for new accounts</span></label><input id="workspace" placeholder="Default workspace" value={workspace} onChange={(event) => setWorkspace(event.target.value)} /></div>
+        <button className="primary-action" onClick={() => authenticate(false)}>Sign in <span aria-hidden="true">→</span></button><div className="auth-divider"><span>or</span></div><button className="outline-action" onClick={() => authenticate(true)}>Create a new workspace</button>
+        <div className={`form-message ${authMessage ? "error" : ""}`}>{authMessage || "New passwords must contain at least 12 characters."}</div>
+      </section></BorderGlow>
+      <details className="recovery-card"><summary><span><b>Reset your password</b><small>Use a one-time token from your administrator</small></span><span aria-hidden="true">+</span></summary><div className="recovery-content"><div className="field"><label htmlFor="reset-token">Reset token</label><input id="reset-token" placeholder="Paste your one-time token" value={resetToken} onChange={(event) => setResetToken(event.target.value)} /></div><div className="field"><label htmlFor="new-password">New password</label><input id="new-password" placeholder="At least 12 characters" type="password" autoComplete="new-password" value={resetPasswordValue} onChange={(event) => setResetPasswordValue(event.target.value)} /></div><button className="primary-action" disabled={!resetToken.trim() || resetPasswordValue.length < 12} onClick={confirmPasswordReset}>Change password</button><div className={`form-message ${resetMessage && !resetMessage.startsWith("Password changed") ? "error" : ""}`}>{resetMessage || "Tokens expire after 30 minutes and can be used once."}</div></div></details>
+      <footer className="auth-footer"><span>Protected access</span><span>•</span><span>Session encryption enabled</span></footer>
+    </div>
+  </main>;
+  return <main>
+    <header className="app-header"><div className="header-bar"><p>SECUREMAILSCOPE / V0.5 · {role}</p><button type="button" className="logout-button" onClick={logout} aria-label="Log out of SecureMailScope">Log out <span aria-hidden="true">→</span></button></div><h1>Evidence, not<br /><i>assumptions.</i></h1><span>Dual-engine PCAP analysis + bounded ML</span></header>
+    {role === "ADMIN" && <section className="members"><p>WORKSPACE MEMBERS</p><h2>Access management</h2><div className="member-form"><input placeholder="Member email" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} /><input placeholder="Temporary password (12+ characters)" type="password" value={memberPassword} onChange={(event) => setMemberPassword(event.target.value)} /><select value={memberRole} onChange={(event) => setMemberRole(event.target.value as Member["role"])}><option>ANALYST</option><option>VIEWER</option><option>ADMIN</option></select><button className="refresh" onClick={createMember}>Create member</button></div><small>{memberMessage}</small>{issuedResetToken && <div className="reset-token"><code>{issuedResetToken}</code><button className="refresh" onClick={() => navigator.clipboard.writeText(issuedResetToken)}>Copy token</button></div>}{members.map((member) => <article key={member.id}><b>{member.role}</b><div><h3>{member.email}</h3><select value={member.role} onChange={(event) => changeRole(member.id, event.target.value as Member["role"])}><option>ADMIN</option><option>ANALYST</option><option>VIEWER</option></select></div><button className="refresh" onClick={() => issuePasswordReset(member.id, member.email)}>Issue reset</button></article>)}</section>}
+    {role === "ADMIN" && <section className="audit"><p>SECURITY AUDIT</p><h2>Workspace activity</h2><div className="audit-filters"><input placeholder="Action, e.g. LOGIN_SUCCEEDED" value={auditAction} onChange={(event) => setAuditAction(event.target.value)} /><input placeholder="Actor user ID" value={auditActor} onChange={(event) => setAuditActor(event.target.value)} /><button className="refresh" onClick={() => loadAudit(1)}>Apply filters</button></div>{auditEvents.length ? <div className="timeline"><table><thead><tr><th>Time</th><th>Action</th><th>Actor</th><th>Target</th><th>Detail</th><th>Source IP</th></tr></thead><tbody>{auditEvents.map((event) => <tr key={event.id}><td>{new Date(event.created_at).toLocaleString()}</td><td><b>{event.action}</b></td><td><code>{event.actor_id?.slice(0, 12) ?? "SYSTEM"}</code></td><td><code>{event.target.slice(0, 16)}</code></td><td>{event.detail}</td><td>{event.ip_address ?? "—"}</td></tr>)}</tbody></table></div> : <small>No audit events match these filters.</small>}<div className="audit-pagination"><button className="refresh" disabled={auditPage <= 1} onClick={() => loadAudit(auditPage - 1)}>Previous</button><small>Page {auditPage} · {auditTotal} events</small><button className="refresh" disabled={auditPage * 10 >= auditTotal} onClick={() => loadAudit(auditPage + 1)}>Next</button></div></section>}
+    <section className="history"><p>ANALYSIS HISTORY</p><h2>Saved investigations</h2><button className="refresh" disabled={busy} onClick={loadHistory}>Refresh history</button>{history.length ? history.map((item) => <article key={item.id} onClick={() => openHistory(item)}><b>{item.status}</b><div><h3>{item.filename}</h3><small>{new Date(item.created_at).toLocaleString()} · {item.sha256.slice(0, 12)}…</small></div>{role !== "VIEWER" && <button className="rerun-button" disabled={busy} onClick={(event) => { event.stopPropagation(); rerunAnalysis(item); }}>Rerun</button>}</article>) : <small>No saved analyses yet.</small>}</section>
+    <section className="upload"><div><b>Upload network capture</b><small>PCAP, PCAPNG, CAP · max 50 MB</small></div><input id="capture" type="file" accept=".pcap,.pcapng,.cap" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setReport(null); }} /><label htmlFor="capture">{file?.name ?? "Choose capture"}</label><div className="actions"><button disabled={busy} onClick={analyseQueued}>{busy ? "Working..." : "Analyse →"}</button><button className="secondary" disabled={busy} onClick={() => send("/api/report/json", true)}>Download JSON report</button><button className="secondary" disabled={busy} onClick={() => send("/api/report/html", true, "html")}>Download HTML report</button><button className="secondary" disabled={busy} onClick={() => send("/api/report/pdf", true, "pdf")}>Download PDF report</button></div><small>{message}</small></section>
+    {report && <><section className="metrics"><Card name="Packets" value={report.packet_count} /><Card name="Sessions" value={sessions.length} /><Card name="Top risk" value={`${sessions[0]?.risk_score ?? 0}/100`} /><Card name="Anomalies" value={sessions.filter((session) => session.anomaly_status === "ANOMALOUS").length} /></section>{report.performance && <section className="metrics performance"><Card name="Analysis time" value={`${report.performance.analysis_time_ms} ms`} /><Card name="Throughput" value={`${report.performance.events_per_second} events/s`} /><Card name="Peak Python memory" value={`${report.performance.peak_python_memory_mb} MB`} /></section>}
+      <section><p>HIGHEST-RISK SESSIONS</p><h2>Analyst priority</h2>{sessions.map((session) => <article className={selected === session.session_id ? "selected" : ""} key={session.session_id} onClick={() => setSelected(session.session_id)}><b className={session.risk_score >= 80 ? "CRITICAL" : session.risk_score >= 50 ? "HIGH" : ""}>{session.risk_score}/100</b><div><code>{session.confidence} confidence · {session.anomaly_status}{session.anomaly_score !== null ? ` · ML ${session.anomaly_score}` : ""}</code><h3>{session.protocol} / {session.transition}</h3><small>{session.anomaly_explanation?.join(" · ") ?? "No ML explanation available."}</small><small>{session.session_id} · Select to inspect evidence</small></div></article>)}</section>
+      <section><p>EVIDENCE TIMELINE</p><h2>{selected ?? "Select a session"}</h2><div className="timeline"><table><thead><tr><th>Frame</th><th>Time</th><th>Engine</th><th>Field</th><th>Raw observation</th><th>Derived conclusion</th></tr></thead><tbody>{timeline.map((evidence, index) => <tr key={`${evidence.source}-${evidence.field}-${index}`}><td>{evidence.frame ?? "—"}</td><td>{evidence.timestamp ? new Date(Number(evidence.timestamp) * 1000).toISOString() : "—"}</td><td>{evidence.source} / {evidence.confidence}</td><td>{evidence.field}</td><td>{evidence.raw_value ?? evidence.value}</td><td>{evidence.derived_value ?? "—"}</td></tr>)}</tbody></table>{!timeline.length && <small>No packet-level evidence is available for this session.</small>}</div></section>
+      <section><p>ZEEK LOGS</p><h2>Independent engine records</h2>{Object.keys(report.zeek_logs ?? {}).length ? Object.entries(report.zeek_logs).map(([name, records]) => <details className="zeek-log" key={name}><summary><b>{name}.log</b><small>{records.length} record{records.length === 1 ? "" : "s"}</small></summary><pre>{JSON.stringify(records, null, 2)}</pre></details>) : <small>Zeek was unavailable for this analysis, so no independent engine logs were produced.</small>}</section>
       <section><p>FINDINGS</p>{report.findings.length ? report.findings.map((finding) => <article key={finding.rule + finding.session}><b className={finding.severity}>{finding.severity}</b><div><h3>{finding.title}</h3><small>{finding.evidence}</small></div></article>) : <small>No deterministic alerts generated.</small>}</section>
-      <section><p>CANONICAL SESSIONS</p><table><thead><tr><th>Protocol</th><th>Transition</th><th>TLS</th><th>Risk</th><th>Confidence</th><th>Anomaly</th></tr></thead><tbody>{sessions.map((session) => <tr key={session.session_id}><td>{session.protocol}</td><td>{session.transition}</td><td>{session.tls_version}</td><td>{session.risk_score}/100</td><td>{session.confidence}</td><td>{session.anomaly_status}{session.anomaly_score !== null ? ` (${session.anomaly_score})` : ""}</td></tr>)}</tbody></table></section>
-      <footer><b>SHA-256</b><code>{report.sha256}</code></footer>
-    </>}
+      <section><p>CANONICAL SESSIONS</p><table><thead><tr><th>Protocol</th><th>Transition</th><th>TLS</th><th>Certificate trust</th><th>Risk</th><th>Confidence</th><th>Anomaly</th></tr></thead><tbody>{sessions.map((session) => <tr key={session.session_id}><td>{session.protocol}</td><td>{session.transition}</td><td>{session.tls_version}</td><td>{session.certificate?.trust_status ?? session.certificate_status}</td><td>{session.risk_score}/100</td><td>{session.confidence}</td><td>{session.anomaly_status}{session.anomaly_score !== null ? ` (${session.anomaly_score})` : ""}</td></tr>)}</tbody></table></section><footer><b>SHA-256</b><code>{report.sha256}</code></footer></>}
   </main>;
 }
-
 function Card({ name, value }: { name: string; value: string | number }) { return <div className="card"><small>{name}</small><strong>{value}</strong></div>; }

@@ -5,9 +5,14 @@ node_modules/
 frontend/node_modules/
 frontend/.next/
 outputs/
+backups/
 pcaps/*.pcap
 pcaps/*.pcapng
 pcaps/*.pem
 pcaps/*-key.pem
 *.log
 .env
+secrets/
+data/uploads/
+data/captures/
+data/*.db

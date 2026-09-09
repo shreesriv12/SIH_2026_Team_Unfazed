@@ -1,0 +1,73 @@
+name: SecureMailScope CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -q
+      - run: python tools/fuzz_capture_validation.py
+      - run: python tools/validate_public_dataset.py
+
+  frontend:
+    name: Next.js production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  containers:
+    name: Compose and image validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Generate ephemeral CI secrets
+        run: python tools/init_secrets.py
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+      - name: Build application images
+        run: docker compose build api worker zeek frontend
+      - name: Validate PostgreSQL migrations
+        run: |
+          docker compose up -d postgres
+          docker compose run --rm migrate
+          test "$(docker compose exec -T postgres psql -U securemailscope -d securemailscope -tAc 'SELECT version_num FROM alembic_version;')" = "20260908_0002"
+          docker compose run --rm migrate alembic downgrade 20260908_0002:20260908_0001 --sql > /tmp/securemailscope-downgrade.sql
+          test -s /tmp/securemailscope-downgrade.sql

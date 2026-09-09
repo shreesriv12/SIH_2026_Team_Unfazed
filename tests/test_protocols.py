@@ -10,4 +10,6 @@ def test_smtp_states():
 
 def test_imap_pop3_states():
     assert imap([{"imap_command": "STARTTLS", "imap_status": "OK"}], True) == "STARTTLS_TO_TLS"
+    assert imap([{"imap_command": "STARTTLS", "imap_status": "OK"}], False) == "STARTTLS_ACCEPTED_NO_TLS"
     assert pop3([{"pop_command": "STLS"}, {"pop_response": "+OK"}], True) == "STLS_TO_TLS"
+    assert pop3([{"pop_command": "STLS"}, {"pop_response": "+OK"}], False) == "STLS_ACCEPTED_NO_TLS"

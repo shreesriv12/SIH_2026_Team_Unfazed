@@ -1,0 +1,12 @@
+{
+  "source": "Wireshark Foundation SampleCaptures",
+  "source_page": "https://wiki.wireshark.org/SampleCaptures",
+  "retrieved": "2026-09-08",
+  "notes": "Public reference captures produced from real protocol implementations. They are not claimed to represent a statistically sampled production population.",
+  "captures": [
+    {"file":"datasets/public/smtp-ssl.pcapng","url":"https://gitlab.com/wireshark/wireshark/-/wikis/uploads/__moin_import__/attachments/SampleCaptures/smtp-ssl.pcapng","sha256":"ca2f8af9de247be43b3a0b8cca6795bc7a2a8076719c572beed6662e1ea46eb4","expected_protocol":"SMTP","expected_transition":"STARTTLS_TO_TLS"},
+    {"file":"datasets/public/smtp2525-ssl.pcapng","url":"https://gitlab.com/wireshark/wireshark/-/wikis/uploads/__moin_import__/attachments/SampleCaptures/smtp2525-ssl.pcapng","sha256":"3008901435425ff05c4cbe60a5801a06da1b5d5efa9489dd146e79c167bae0fd","expected_protocol":"SMTP","expected_transition":"STARTTLS_TO_TLS"},
+    {"file":"datasets/public/imap-ssl.pcapng","url":"https://gitlab.com/wireshark/wireshark/-/wikis/uploads/__moin_import__/attachments/SampleCaptures/imap-ssl.pcapng","sha256":"c988a888d2a6f93d70d383eef4b8cd0c27e440266d0f61980f33b94da9a3ad61","expected_protocol":"IMAP","expected_transition":"STARTTLS_TO_TLS"},
+    {"file":"datasets/public/pop-ssl.pcapng","url":"https://gitlab.com/wireshark/wireshark/-/wikis/uploads/__moin_import__/attachments/SampleCaptures/pop-ssl.pcapng","sha256":"a9bf0b6c9125c181969c1e68718f1ad68bf7f091d5f115fb4089c983273e0e5d","expected_protocol":"POP3","expected_transition":"STLS_TO_TLS"}
+  ]
+}

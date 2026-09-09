@@ -1,0 +1,14 @@
+{
+  "evaluated_at": "2026-09-08",
+  "engine": "TShark 4.6.0",
+  "captures": 4,
+  "sessions": 4,
+  "protocol_transition_correct": 4,
+  "protocol_transition_accuracy": 1.0,
+  "protocol_coverage": ["SMTP", "IMAP", "POP3"],
+  "limitations": [
+    "Small public reference corpus; not statistically representative of production traffic.",
+    "All four captures are successful TLS upgrade cases.",
+    "Controlled golden captures remain the source for negative-condition precision and recall tests."
+  ]
+}

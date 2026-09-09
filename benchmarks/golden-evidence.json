@@ -1,0 +1,10 @@
+{
+  "engine_conflicts": [
+    {"tshark_version":"TLS 1.2","tshark_cipher":"0xc030","zeek_version":"TLSv13","zeek_cipher":"TLS_AES_256_GCM_SHA384","expected":["TLS_VERSION","TLS_CIPHER"]}
+  ],
+  "crypto_cases": [
+    {"tls_version":"TLS 1.2","cipher":"0x002f","key_exchange":"STATIC_RSA","expected_rules":["TLS-WEAK-CIPHER-001","TLS-STATIC-RSA-001"]},
+    {"tls_version":"TLS 1.1","cipher":"0xc014","key_exchange":"ECDHE","expected_rules":["TLS-DEPRECATED-001"]},
+    {"tls_version":"TLS 1.2","cipher":"0xc030","key_exchange":"ECDHE","key_share_group":"1","expected_rules":["TLS-WEAK-GROUP-001"]}
+  ]
+}

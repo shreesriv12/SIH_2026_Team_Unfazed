@@ -1,0 +1,21 @@
+{
+  "captures": [
+    {"file":"pcaps/smtp_starttls.pcapng","expected_rules":[]},
+    {"file":"pcaps/smtp_plain.pcapng","expected_rules":["V0-STARTTLS-OBSERVATION"]},
+    {"file":"pcaps/smtp_starttls_rejected.pcapng","expected_rules":["V02-UPGRADE-FAILED"]},
+    {"file":"pcaps/smtp_starttls_broken.pcapng","expected_rules":["V02-UPGRADE-FAILED"]},
+    {"file":"pcaps/smtp_starttls_ignored.pcapng","expected_rules":["V01-STARTTLS-IGNORED"]},
+    {"file":"pcaps/imap_starttls.pcapng","expected_rules":[]},
+    {"file":"pcaps/imap_starttls_rejected.pcapng","expected_rules":["V02-UPGRADE-FAILED"]},
+    {"file":"pcaps/imap_starttls_broken.pcapng","expected_rules":["V02-UPGRADE-FAILED"]},
+    {"file":"pcaps/pop3_stls.pcapng","expected_rules":[]},
+    {"file":"pcaps/pop3_stls_rejected.pcapng","expected_rules":["V02-UPGRADE-FAILED"]},
+    {"file":"pcaps/pop3_stls_broken.pcapng","expected_rules":["V02-UPGRADE-FAILED"]},
+    {"file":"pcaps/smtp_tls12_expired_cert_retry.pcapng","expected_rules":["X509-EXPIRED-001"]},
+    {"file":"pcaps/smtp_tls10.pcapng","expected_rules":["TLS-DEPRECATED-001"]},
+    {"file":"pcaps/smtp_ipv4_fragmented.pcap","expected_rules":["V02-UPGRADE-FAILED"]},
+    {"file":"pcaps/smtp_ipv4_fragment_incomplete.pcap","expected_rules":[],"expected_error":"PCAP_FRAGMENT_INCOMPLETE"},
+    {"file":"pcaps/smtp_ipv6_fragmented.pcap","expected_rules":["V02-UPGRADE-FAILED"]},
+    {"file":"pcaps/hostile_truncated.pcapng","expected_rules":[],"expected_error":"PCAP_MALFORMED_PACKET"}
+  ]
+}

@@ -10,6 +10,9 @@ class Evidence:
     field: str
     value: str
     frame: str | None = None
+    timestamp: str | None = None
+    raw_value: str | None = None
+    derived_value: str | None = None
     confidence: str = "DIRECT"
 
 
@@ -24,10 +27,15 @@ class Session:
     classification_basis: str = "DIRECT"
     certificate_status: str = "CERTIFICATE_NOT_OBSERVABLE"
     certificate_not_after: str = ""
+    certificate: dict[str, str] = field(default_factory=dict)
+    key_exchange: str = "NOT_OBSERVABLE"
+    forward_secrecy: str = "NOT_OBSERVABLE"
     risk_score: int = 0
     confidence: str = "MEDIUM"
     anomaly_score: float | None = None
     anomaly_status: str = "BASELINE_INSUFFICIENT"
+    anomaly_explanation: list[str] = field(default_factory=list)
+    engine_conflicts: list[str] = field(default_factory=list)
     evidence: list[Evidence] = field(default_factory=list)
 
     def table_row(self) -> dict[str, str]:
@@ -42,6 +50,8 @@ class AnalysisResult:
     tshark_version: str
     findings: list[dict[str, str]]
     zeek_log_counts: dict[str, int] = field(default_factory=dict)
+    zeek_logs: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    performance: dict[str, float] = field(default_factory=dict)
 
     @property
     def high_risk_count(self) -> int:
@@ -60,5 +70,5 @@ class AnalysisResult:
         return [s.table_row() for s in self.sessions]
 
     def as_dict(self) -> dict[str, Any]:
-        return {"packet_count": self.packet_count, "tshark_version": self.tshark_version, "zeek_log_counts": self.zeek_log_counts,
+        return {"packet_count": self.packet_count, "tshark_version": self.tshark_version, "zeek_log_counts": self.zeek_log_counts, "zeek_logs": self.zeek_logs, "performance": self.performance,
                 "sessions": [asdict(s) for s in self.sessions], "findings": self.findings}
